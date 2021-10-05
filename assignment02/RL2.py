@@ -55,7 +55,7 @@ class RL2:
     def epsilon_greedy(self, state, value_function, avg_reward_estimator, transition_prob_estimator, epsilon=0):
         n_actions = self.mdp.nActions
         n_states = self.mdp.nStates
-        if np.random.rand < epsilon:
+        if np.random.rand() < epsilon:
             action = np.random.choice(n_actions)
         else:
             value_action_pairs = []
@@ -63,7 +63,7 @@ class RL2:
                 next_value = 0
                 for next_state in range(n_states):
                     next_value += transition_prob_estimator[a][state][next_state] * value_function[next_state]
-                q_values = avg_reward_estimator[a][state] + self.discount * next_value
+                q_values = avg_reward_estimator[a][state] + self.mdp.discount * next_value
                 value_action_pairs.append((q_values, a))
             # to select one of the actions of equal Q-value at random due to Python's sort is stable
             np.random.shuffle(value_action_pairs)
@@ -77,8 +77,14 @@ class RL2:
             next_value = 0
             for next_state in range(self.mdp.nStates):
                 next_value += transition_prob_estimator[a][state][next_state] * value_function[next_state]
-            q_values.append(avg_reward_estimator[a][state] + self.discount * next_value)
+            q_values.append(avg_reward_estimator[a][state] + self.mdp.discount * next_value)
         return max(q_values)
+
+    def updateTransitionProb(self, state, action, transition_prob_estimator,
+                             action_state_counter, action_state_nextstate_counter):
+        for next_state in range(self.mdp.nStates):
+            transition_prob_estimator[action][state][next_state] = action_state_nextstate_counter[action][state][next_state] / action_state_counter[action][state]
+        return transition_prob_estimator
 
     def modelBasedRL(self,s0,defaultT,initialR,nEpisodes,nSteps,epsilon=0):
         '''Model-based Reinforcement Learning with epsilon greedy 
@@ -113,8 +119,9 @@ class RL2:
                 [reward, next_state] = self.sampleRewardAndNextState(state, action)
                 action_state_counter[action][state] += 1
                 action_state_nextstate_counter[action][state][next_state] += 1
-                transition_prob_estimator[action][state][next_state] = action_state_nextstate_counter[action][state][next_state] / action_state_counter[action][state]
-                avg_reward_estimator[action][state] += (reward - avg_reward_estimator[action][state]) / action_state_counter[action][state]
+                transition_prob_estimator = self.updateTransitionProb(state, action, transition_prob_estimator,
+                                                                      action_state_counter, action_state_nextstate_counter)
+                avg_reward_estimator[action][state] += ((reward - avg_reward_estimator[action][state]) / action_state_counter[action][state])
                 V[state] = self.compute_optimal_value(state, V, avg_reward_estimator, transition_prob_estimator)
                 state = next_state
         # extract optimal policy
@@ -173,7 +180,7 @@ class RL2:
         return empiricalMeans
 
     def reinforce_softmax(self, policy, state):
-        probability = np.exp(policy[:, state]) / np.sum(np.exp(policy[:state]))
+        probability = np.exp(policy[:, state]) / np.sum(np.exp(policy[:, state]))
         return probability
 
     def reinforce_sample_action(self, policy, state):
