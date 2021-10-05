@@ -315,7 +315,7 @@ print(V)
 print(policy)
 
 # Test Q-learning
-#[Q,policy] = rlProblem.qLearning(s0=0,initialQ=np.zeros([mdp.nActions,mdp.nStates]),nEpisodes=200,nSteps=100,epsilon=0.05)
-#print("\nQ-learning results")
-#print(Q)
-#print(policy)
+[Q,policy] = rlProblem.qLearning(s0=0,initialQ=np.zeros([mdp.nActions,mdp.nStates]),nEpisodes=200,nSteps=100,epsilon=0.05)
+print("\nQ-learning results")
+print(Q)
+print(policy)

@@ -129,6 +129,15 @@ class RL2:
             policy[state] = self.epsilon_greedy(state, V, avg_reward_estimator, transition_prob_estimator, 0)
         return [V,policy]    
 
+    def epsilonGreedyBandit_SampleAction(self, empiricalMeans, epsilon):
+        if np.random.rand() < epsilon:
+            return np.random.choice(self.mdp.nActions)
+        action_values = []
+        for action in range(self.mdp.nActions):
+            action_values.append(empiricalMeans[action])
+        np.random.shuffle(action_values)
+        return np.argmax(action_values)
+
     def epsilonGreedyBandit(self,nIterations):
         '''Epsilon greedy algorithm for bandits (assume no discount factor).  Use epsilon = 1 / # of iterations.
 
@@ -142,7 +151,14 @@ class RL2:
         # temporary values to ensure that the code compiles until this
         # function is coded
         empiricalMeans = np.zeros(self.mdp.nActions)
-
+        action_counter = np.zeros(self.mdp.nActions)
+        state = 0
+        for t in range(nIterations):
+            epsilon = 1 / (t + 1)
+            action = self.epsilonGreedyBandit_SampleAction(empiricalMeans, epsilon)
+            [reward, state] = self.sampleRewardAndNextState(state, action)
+            action_counter[action] += 1
+            empiricalMeans[action] += (reward - empiricalMeans[action]) / action_counter[action]
         return empiricalMeans
 
     def thompsonSamplingBandit(self,prior,nIterations,k=1):
@@ -160,8 +176,24 @@ class RL2:
         # temporary values to ensure that the code compiles until this
         # function is coded
         empiricalMeans = np.zeros(self.mdp.nActions)
-
+        state = 0
+        for i in range(nIterations):
+            for action in range(self.mdp.nActions):
+                empiricalMeans[action] = np.mean(np.random.beta(prior[action][0], prior[action][1], size=k))
+            action = np.argmax(empiricalMeans)
+            [reward, state] = self.sampleRewardAndNextState(state, action)
+            prior[action][0] += reward
+            prior[action][1] += 1 - reward 
         return empiricalMeans
+
+    def UCBSampleAction(self, empiricalMeans, action_counter, timestep, epsilon=1e-08):
+        action_values = []
+        for action in range(self.mdp.nActions):
+            value = empiricalMeans[action] + np.sqrt((2 * np.log(timestep)) / (action_counter[action] + epsilon))
+            action_values.append(value)
+        np.random.shuffle(action_values)
+        return np.argmax(action_values)
+
 
     def UCBbandit(self,nIterations):
         '''Upper confidence bound algorithm for bandits (assume no discount factor)
@@ -176,7 +208,15 @@ class RL2:
         # temporary values to ensure that the code compiles until this
         # function is coded
         empiricalMeans = np.zeros(self.mdp.nActions)
-
+        action_counter = np.zeros(self.mdp.nActions)
+        epsilon = 1e-08  # avoid numerical overflow issue
+        state = 0
+        t = 0
+        for t in range(1, nIterations + 1):
+            action = self.UCBSampleAction(empiricalMeans, action_counter, t, epsilon)
+            [reward, state] = self.sampleRewardAndNextState(state, action)
+            action_counter[action] += 1
+            empiricalMeans[action] += (reward - empiricalMeans[action]) / action_counter[action]
         return empiricalMeans
 
     def reinforce_softmax(self, policy, state):
@@ -245,3 +285,86 @@ class RL2:
                 # policyParams[:, state_buffer[t]] +=  lr * Return * policy_gradient
                 policyParams[:, state_buffer[t]] +=  lr * (self.mdp.discount ** t) * Return * policy_gradient
         return policyParams    
+
+    def selectOptimalAction(self, Q, state, epsilon=0, temperature=0):
+        n_actions = self.mdp.nActions
+        temp = np.zeros(n_actions)
+        for action in range(n_actions):
+            temp[action] = Q[action][state]
+        if epsilon > 0:
+            if np.random.rand() < epsilon:
+                action = np.random.choice(n_actions)
+            else:
+                # to select one of the actions of equal Q-value at random due to Python's sort is stable
+                q_action_pairs = []
+                for action, q in enumerate(temp):
+                    q_action_pairs.append((q, action))
+                np.random.shuffle(q_action_pairs)
+                q_action_pairs.sort(key=lambda x:x[0], reverse=True)
+                action = q_action_pairs[0][1]
+            return action
+        if temperature > 0:
+            p = np.exp(temp / temperature) / np.sum(np.exp(temp / temperature))
+            action = np.random.choice(n_actions, p)
+            return action
+        # to select one of the actions of equal Q-value at random due to Python's sort is stable
+        q_action_pairs = []
+        for action, q in enumerate(temp):
+            q_action_pairs.append((q, action))
+        np.random.shuffle(q_action_pairs)
+        q_action_pairs.sort(key=lambda x:x[0], reverse=True)
+        action = q_action_pairs[0][1]
+        return action
+
+    def computeMaxQ(self, Q, state):
+        q = 0
+        for action in range(self.mdp.nActions):
+            q = max(q, Q[action][state])
+        return q
+
+    def qLearning(self,s0,initialQ,nEpisodes,nSteps,epsilon=0,temperature=0):
+        '''qLearning algorithm.  Epsilon exploration and Boltzmann exploration
+        are combined in one procedure by sampling a random action with 
+        probabilty epsilon and performing Boltzmann exploration otherwise.  
+        When epsilon and temperature are set to 0, there is no exploration.
+
+        Inputs:
+        s0 -- initial state
+        initialQ -- initial Q function (|A|x|S| array)
+        nEpisodes -- # of episodes (one episode consists of a trajectory of nSteps that starts in s0
+        nSteps -- # of steps per episode
+        epsilon -- probability with which an action is chosen at random
+        temperature -- parameter that regulates Boltzmann exploration
+
+        Outputs: 
+        Q -- final Q function (|A|x|S| array)
+        policy -- final policy
+        '''
+
+        # temporary values to ensure that the code compiles until this
+        # function is coded
+        self.reward_list = [0] * nEpisodes
+        Q = np.copy(initialQ)
+        policy = np.zeros(self.mdp.nStates,int)
+        count = {}
+        for episode in range(nEpisodes):
+            state = int(np.copy(s0))
+            for t in range(nSteps):
+                # count += 1
+                # alpha = 0.01
+                # alpha = 1 / count
+                action = self.selectOptimalAction(Q, state, epsilon, temperature)
+                reward, next_state = self.sampleRewardAndNextState(state, action)
+                q_next = self.computeMaxQ(Q, next_state)
+                if (state, action) not in count:
+                    count[(state, action)] = 1
+                else:
+                    count[(state, action)] += 1
+                alpha = 1 / count[(state, action)]
+                Q[action][state] += alpha * (reward + self.mdp.discount * q_next - Q[action][state])
+                state = next_state
+                
+        # extract policy
+        for state in range(self.mdp.nStates):
+            policy[state] = self.selectOptimalAction(Q, state, 0, 0)
+        return [Q,policy]
