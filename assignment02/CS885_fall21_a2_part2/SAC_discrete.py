@@ -1,5 +1,6 @@
 # Author: Yanting Miao
-
+# Modern SAC discrete, my code is different from Lecture slides
+# Reference: https://arxiv.org/pdf/1812.05905.pdf
 from os import stat
 import gym
 import numpy as np
@@ -241,7 +242,7 @@ if __name__ == "__main__":
     # Train for different seeds
     curves = []
     for seed in SEEDS:
-        curves += [train(seed, LAMBDA=10)]
+        curves += [train(seed, LAMBDA=1000)]
 
     # Plot the curve for the given seeds
     plot_arrays(curves, 'b', 'SAC Discrete')
