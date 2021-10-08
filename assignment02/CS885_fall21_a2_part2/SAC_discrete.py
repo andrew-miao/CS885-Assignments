@@ -44,6 +44,11 @@ Q = None
 # Create network for Q(s, a)
 # Create target network
 # Create optimizer
+def weights_init(m):
+    if isinstance(m, nn.Linear):
+        nn.init.xavier_uniform_(m.weight, gain=1)
+        nn.init.zeros_(m.bias)
+
 class SoftmaxActor(nn.Module):
     def __init__(self, input_dim=OBS_N, hidden_dim=HIDDEN, output_dim=ACT_N):
         super(SoftmaxActor, self).__init__()
@@ -52,6 +57,7 @@ class SoftmaxActor(nn.Module):
         self.fc3 = nn.Linear(hidden_dim, output_dim)
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=-1)
+        # self.apply(weights_init)
 
     def forward(self, x):
         if isinstance(x, (np.ndarray, np.generic)):
@@ -72,6 +78,7 @@ class QNetwork(nn.Module):
         self.fc5 = nn.Linear(hidden_dim, hidden_dim)
         self.fc6 = nn.Linear(hidden_dim, output_dim)
         self.relu = nn.ReLU()
+        # self.apply(weights_init)
 
     def forward(self, x):
         x1 = self.relu(self.fc1(x))
@@ -135,8 +142,9 @@ def create_everything(seed):
 
 # Update a target network using a source network
 def update(target, source):
+    rou = 0.005
     for tp, p in zip(target.parameters(), source.parameters()):
-        tp.data.copy_(0.005 * p.data + (1 - 0.005) * tp.data)
+        tp.data.copy_(rou * p.data + (1 - rou) * tp.data)
 
 # Update networks
 def update_networks(epi, buf, critic, critic_target, actor, critic_optimizer, actor_optimizer, LAMBDA):
@@ -169,10 +177,7 @@ def update_networks(epi, buf, critic, critic_target, actor, critic_optimizer, ac
     with torch.no_grad():
         q1_value, q2_value = critic(state)
         min_q = torch.min(q1_value, q2_value)
-        target_distribution = softmax(min_q / LAMBDA)
         # target_distribution = torch.sum(min_q * probs, dim=1, keepdim=True)
-    actor_criterion = nn.KLDivLoss()
-    # actor_loss = actor_criterion(probs, target_distribution)
     actor_loss = torch.mean(probs * (LAMBDA * torch.log(probs + 1e-16) - min_q))
     actor.zero_grad()
     actor_loss.backward()
@@ -242,7 +247,7 @@ if __name__ == "__main__":
     # Train for different seeds
     curves = []
     for seed in SEEDS:
-        curves += [train(seed, LAMBDA=1000)]
+        curves += [train(seed, LAMBDA=10)]
 
     # Plot the curve for the given seeds
     plot_arrays(curves, 'b', 'SAC Discrete')

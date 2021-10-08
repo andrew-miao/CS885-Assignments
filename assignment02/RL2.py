@@ -14,6 +14,12 @@ class RL2:
 
         self.mdp = mdp
         self.sampleReward = sampleReward
+        self.reinforce_cul_reward = []
+        self.model_rl_reward = []
+        self.q_learning_reward = []
+        self.ucb_reward = []
+        self.eps_greedy_reward = []
+        self.thompson_reward = []
 
     def sampleRewardAndNextState(self,state,action):
         '''Procedure to sample a reward and the next state
@@ -112,11 +118,13 @@ class RL2:
         avg_reward_estimator = np.copy(initialR) # avg_reward_estimator shape = (|A|, |S|)
         action_state_counter = np.zeros(avg_reward_estimator.shape)
         action_state_nextstate_counter = np.zeros(transition_prob_estimator.shape)
-        for _ in range(nEpisodes):
+        self.model_rl_reward = [0] * nEpisodes
+        for i in range(nEpisodes):
             state = int(np.copy(s0))
-            for  __ in range(nSteps):
+            for t in range(nSteps):
                 action = self.epsilon_greedy(state, V, avg_reward_estimator, transition_prob_estimator, epsilon)
                 [reward, next_state] = self.sampleRewardAndNextState(state, action)
+                self.model_rl_reward[i] += (self.mdp.discount ** t) * reward
                 action_state_counter[action][state] += 1
                 action_state_nextstate_counter[action][state][next_state] += 1
                 transition_prob_estimator = self.updateTransitionProb(state, action, transition_prob_estimator,
@@ -127,7 +135,7 @@ class RL2:
         # extract optimal policy
         for state in range(self.mdp.nStates):
             policy[state] = self.epsilon_greedy(state, V, avg_reward_estimator, transition_prob_estimator, 0)
-        return [V,policy]    
+        return [V,policy], self.model_rl_reward    
 
     def epsilonGreedyBandit_SampleAction(self, empiricalMeans, epsilon):
         if np.random.rand() < epsilon:
@@ -135,7 +143,6 @@ class RL2:
         action_values = []
         for action in range(self.mdp.nActions):
             action_values.append(empiricalMeans[action])
-        np.random.shuffle(action_values)
         return np.argmax(action_values)
 
     def epsilonGreedyBandit(self,nIterations):
@@ -153,13 +160,15 @@ class RL2:
         empiricalMeans = np.zeros(self.mdp.nActions)
         action_counter = np.zeros(self.mdp.nActions)
         state = 0
+        self.eps_greedy_reward = [None] * nIterations
         for t in range(nIterations):
             epsilon = 1 / (t + 1)
             action = self.epsilonGreedyBandit_SampleAction(empiricalMeans, epsilon)
             [reward, state] = self.sampleRewardAndNextState(state, action)
+            self.eps_greedy_reward[t] = reward
             action_counter[action] += 1
             empiricalMeans[action] += (reward - empiricalMeans[action]) / action_counter[action]
-        return empiricalMeans
+        return empiricalMeans, self.eps_greedy_reward
 
     def thompsonSamplingBandit(self,prior,nIterations,k=1):
         '''Thompson sampling algorithm for Bernoulli bandits (assume no discount factor)
@@ -177,21 +186,22 @@ class RL2:
         # function is coded
         empiricalMeans = np.zeros(self.mdp.nActions)
         state = 0
-        for i in range(nIterations):
+        self.thompson_reward = [None] * nIterations
+        for t in range(nIterations):
             for action in range(self.mdp.nActions):
                 empiricalMeans[action] = np.mean(np.random.beta(prior[action][0], prior[action][1], size=k))
             action = np.argmax(empiricalMeans)
             [reward, state] = self.sampleRewardAndNextState(state, action)
+            self.thompson_reward[t] = reward
             prior[action][0] += reward
             prior[action][1] += 1 - reward 
-        return empiricalMeans
+        return empiricalMeans, self.thompson_reward
 
     def UCBSampleAction(self, empiricalMeans, action_counter, timestep, epsilon=1e-08):
         action_values = []
         for action in range(self.mdp.nActions):
-            value = empiricalMeans[action] + np.sqrt((2 * np.log(timestep)) / (action_counter[action] + epsilon))
+            value = empiricalMeans[action] + np.sqrt(2 * np.log(timestep) / (action_counter[action] + epsilon))
             action_values.append(value)
-        np.random.shuffle(action_values)
         return np.argmax(action_values)
 
 
@@ -212,12 +222,14 @@ class RL2:
         epsilon = 1e-08  # avoid numerical overflow issue
         state = 0
         t = 0
+        self.ucb_reward = [None] * nIterations
         for t in range(1, nIterations + 1):
             action = self.UCBSampleAction(empiricalMeans, action_counter, t, epsilon)
             [reward, state] = self.sampleRewardAndNextState(state, action)
+            self.ucb_reward[t - 1] = reward
             action_counter[action] += 1
             empiricalMeans[action] += (reward - empiricalMeans[action]) / action_counter[action]
-        return empiricalMeans
+        return empiricalMeans, self.ucb_reward
 
     def reinforce_softmax(self, policy, state):
         probability = np.exp(policy[:, state]) / np.sum(np.exp(policy[:, state]))
@@ -228,12 +240,13 @@ class RL2:
         action = np.random.choice(self.mdp.nActions, 1, p=probability)
         return action
 
-    def generateEpisode(self, initial_state, policy, nSteps):
+    def generateEpisode(self, initial_state, policy, nSteps, episode):
         state_buffer, action_buffer, reward_buffer = [], [], []
         state = int(np.copy(initial_state))
         action = self.reinforce_sample_action(policy, state)
-        for _ in range(nSteps):
+        for t in range(nSteps):
             [reward, next_state] = self.sampleRewardAndNextState(state, action)
+            self.reinforce_cul_reward[episode] += (self.mdp.discount ** t) * reward
             state_buffer.append(state)
             action_buffer.append(action)
             reward_buffer.append(reward)
@@ -277,14 +290,15 @@ class RL2:
         # function is coded
         lr = 0.01
         policyParams = np.copy(initialPolicyParams)
-        for _ in range(nEpisodes):
-            state_buffer, action_buffer, reward_buffer = self.generateEpisode(s0, policy=policyParams, nSteps=nSteps)
+        self.reinforce_cul_reward = [0] * nEpisodes
+        for i in range(nEpisodes):
+            state_buffer, action_buffer, reward_buffer = self.generateEpisode(s0, policy=policyParams, nSteps=nSteps, episode=i)
             for t in range(nSteps):
                 Return = self.computeReturn(reward_buffer, t)
                 policy_gradient = self.computePolicyGradient(policyParams, action_buffer[t], state_buffer[t])
                 # policyParams[:, state_buffer[t]] +=  lr * Return * policy_gradient
                 policyParams[:, state_buffer[t]] +=  lr * (self.mdp.discount ** t) * Return * policy_gradient
-        return policyParams    
+        return policyParams, self.reinforce_cul_reward  
 
     def selectOptimalAction(self, Q, state, epsilon=0, temperature=0):
         n_actions = self.mdp.nActions
@@ -341,30 +355,32 @@ class RL2:
         policy -- final policy
         '''
 
-        # temporary values to ensure that the code compiles until this
-        # function is coded
-        self.reward_list = [0] * nEpisodes
+        temperature = float(temperature)
+        counts = np.zeros([self.mdp.nActions, self.mdp.nStates])
         Q = np.copy(initialQ)
-        policy = np.zeros(self.mdp.nStates,int)
-        count = {}
+        ep_rewards = []
+
         for episode in range(nEpisodes):
-            state = int(np.copy(s0))
-            for t in range(nSteps):
-                # count += 1
-                # alpha = 0.01
-                # alpha = 1 / count
-                action = self.selectOptimalAction(Q, state, epsilon, temperature)
-                reward, next_state = self.sampleRewardAndNextState(state, action)
-                q_next = self.computeMaxQ(Q, next_state)
-                if (state, action) not in count:
-                    count[(state, action)] = 1
+            s = np.copy(s0)
+            discounted_rewards = 0.
+            for step in range(nSteps):
+                if np.random.uniform() < epsilon:
+                    a = np.random.randint(self.mdp.nActions)
                 else:
-                    count[(state, action)] += 1
-                alpha = 1 / count[(state, action)]
-                Q[action][state] += alpha * (reward + self.mdp.discount * q_next - Q[action][state])
-                state = next_state
-                
-        # extract policy
-        for state in range(self.mdp.nStates):
-            policy[state] = self.selectOptimalAction(Q, state, 0, 0)
-        return [Q,policy]
+                    if temperature == 0.:
+                        a = np.argmax(Q[:, s])
+                    else:
+                        prob_a = np.exp(Q[:, s] / temperature) / np.sum(np.exp(Q[:, s] / temperature))
+                        a = np.argmax(np.random.multinomial(1, prob_a))
+
+                r, next_s = self.sampleRewardAndNextState(s, a)
+                discounted_rewards += self.mdp.discount**step * r
+
+                counts[a, s] += 1.
+                Q[a, s] += (1. / counts[a, s]) * (r + self.mdp.discount * np.amax(Q[:, next_s]) - Q[a, s])
+                s = np.copy(next_s)
+            ep_rewards.append(discounted_rewards)
+
+        policy = np.argmax(Q, axis=0)
+        self.q_learning_reward = np.array(ep_rewards)
+        return [Q,policy, self.q_learning_reward]
