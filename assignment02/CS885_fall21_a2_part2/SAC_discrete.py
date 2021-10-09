@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import warnings
 import torch.nn as nn
 from torch.distributions import Categorical
+import argparse
 warnings.filterwarnings("ignore")
 
 # Constants
@@ -242,15 +243,26 @@ def plot_arrays(vars, color, label):
     plt.plot(range(len(mean)), mean, color=color, label=label)
     plt.fill_between(range(len(mean)), np.maximum(mean-std, 0), np.minimum(mean+std,200), color=color, alpha=0.3)
 
+def main():
+    parser = argparse.ArgumentParser(description='SAC discrete experiment, default: only test temperature=10')
+    parser.add_argument('--multialpha', type=bool, default=False, help='Test multiple temperature hyperparameters')
+    args = parser.parse_args()
+    print('-----------------SAC experiment-----------------')
+    if args.multialpha:
+        LAMBDA_list = [1, 10, 100, 1000]
+        curves = []
+        for alpha in LAMBDA_list:
+            print('---------alpha = %d-------------' % (alpha))
+            for seed in SEEDS:
+                curves += [train(seed, alpha)]
+        torch.save(curves, 'sac_multialpha_results.pt')
+    else:
+        curves = []
+        for seed in SEEDS:
+            curves += [train(seed, 10)]
+        curves = np.array(curves).reshape(len(SEEDS), -1)
+        torch.save(curves, 'sac_results.pt')
+    print('Results saved!')
+
 if __name__ == "__main__":
-
-    # Train for different seeds
-    curves = []
-    for seed in SEEDS:
-        curves += [train(seed, LAMBDA=10)]
-
-    # Plot the curve for the given seeds
-    plot_arrays(curves, 'b', 'SAC Discrete')
-    plt.legend(loc='best')
-    plt.savefig('SAC Discrete.png')
-    plt.show()
+    main()

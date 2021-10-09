@@ -200,7 +200,7 @@ class RL2:
     def UCBSampleAction(self, empiricalMeans, action_counter, timestep, epsilon=1e-08):
         action_values = []
         for action in range(self.mdp.nActions):
-            value = empiricalMeans[action] + np.sqrt(2 * np.log(timestep) / (action_counter[action] + epsilon))
+            value = empiricalMeans[action] + np.sqrt(4 * np.log(timestep) / (2 * action_counter[action] + epsilon))
             action_values.append(value)
         return np.argmax(action_values)
 

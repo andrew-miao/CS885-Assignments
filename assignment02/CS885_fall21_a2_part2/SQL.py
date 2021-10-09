@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import warnings
 import torch.nn as nn
 from torch.distributions import Categorical
+import argparse
 warnings.filterwarnings("ignore")
 
 # Deep Q Learning
@@ -47,7 +48,7 @@ Q = None
 # Create optimizer
 
 class QNetwork(nn.Module):
-    def __init__(self, input_dim=OBS_N, hidden_dim=HIDDEN, output_dim=ACT_N, eps=1e-16):
+    def __init__(self, input_dim=OBS_N, hidden_dim=HIDDEN, output_dim=ACT_N, eps=1e-08):
         super(QNetwork, self).__init__()
         self.fc1 = nn.Linear(input_dim, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
@@ -64,9 +65,12 @@ class QNetwork(nn.Module):
     def value(self, x, alpha):
         # alpha = LAMBDA
         x = self.forward(x)
-        y = torch.exp(x / alpha)
+        y = alpha * torch.logsumexp(x/alpha, dim=-1)
+        """
+        x = torch.clamp(x / alpha, max=85)  # use clamp to avoid numerical overflow
+        y = torch.exp(x)
         y = torch.sum(y, dim=-1)
-        y = alpha * torch.log(y + self.eps)
+        y = alpha * torch.log(y + self.eps)"""
         return y
 
 def create_everything(seed):
@@ -187,15 +191,26 @@ def plot_arrays(vars, color, label):
     plt.plot(range(len(mean)), mean, color=color, label=label)
     plt.fill_between(range(len(mean)), np.maximum(mean-std, 0), np.minimum(mean+std,200), color=color, alpha=0.3)
 
+def main():
+    parser = argparse.ArgumentParser(description='SQL experiment, default: only test temperature=10')
+    parser.add_argument('--multialpha', type=bool, default=False, help='Test multiple temperature hyperparameters')
+    args = parser.parse_args()
+    print('-----------------SQL experiment-----------------')
+    if args.multialpha:
+        LAMBDA_list = [1, 10, 100, 1000]
+        curves = []
+        for alpha in LAMBDA_list:
+            print('---------alpha = %d-------------' % (alpha))
+            for seed in SEEDS:
+                curves += [train(seed, alpha)]
+        torch.save(curves, 'sql_multialpha_results.pt')
+    else:
+        curves = []
+        for seed in SEEDS:
+            curves += [train(seed, 10)]
+        curves = np.array(curves).reshape(len(SEEDS), -1)
+        torch.save(curves, 'sql_results.pt')
+    print('Results saved!')
+
 if __name__ == "__main__":
-
-    # Train for different seeds
-    curves = []
-    for seed in SEEDS:
-        curves += [train(seed, LAMBDA=10)]
-
-    # Plot the curve for the given seeds
-    plot_arrays(curves, 'b', 'SQL')
-    plt.legend(loc='best')
-    plt.savefig('sql.png')
-    plt.show()
+    main()

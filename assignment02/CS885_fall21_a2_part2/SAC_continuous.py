@@ -40,7 +40,7 @@ EPSILON_END = 0.01      # At the end, keep epsilon at this value
 LOG_STD_MAX = 2         # Log std max value
 LOG_STD_MIN = -20       # Log std min value
 rou = 0.005             # Hyperparameter for smoothing update Q target network
-initial_alpha = 0.25     # Initial alpha
+initial_alpha = 0.20     # Initial alpha
 
 # Global variables
 EPSILON = STARTING_EPSILON
@@ -298,6 +298,7 @@ def plot_arrays(vars, color, label):
     plt.plot(range(len(mean)), mean, color=color, label=label)
     plt.fill_between(range(len(mean)), mean-std, mean+std, color=color, alpha=0.3)
     plt.legend(loc='upper left')
+    plt.grid()
     plt.savefig('SAC Continuous.png')
     plt.show()
 

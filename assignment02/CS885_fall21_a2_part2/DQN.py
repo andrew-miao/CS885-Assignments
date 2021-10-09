@@ -180,14 +180,12 @@ def plot_arrays(vars, color, label):
     plt.fill_between(range(len(mean)), np.maximum(mean-std, 0), np.minimum(mean+std,200), color=color, alpha=0.3)
 
 if __name__ == "__main__":
-
     # Train for different seeds
     curves = []
+    print('-----------------DQN experiment-----------------')
     for seed in SEEDS:
         curves += [train(seed)]
 
-    # Plot the curve for the given seeds
-    plot_arrays(curves, 'b', 'dqn')
-    plt.legend(loc='best')
-    plt.savefig('dqn.png')
-    plt.show()
+    # Save results
+    curves = np.array(curves).reshape(len(SEEDS), -1)
+    torch.save(curves, 'dqn_results.pt')
