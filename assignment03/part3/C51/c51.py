@@ -8,6 +8,7 @@ import memory
 from memory import Transition
 import networks
 import matplotlib.pyplot as plt
+from torch.nn.functional import one_hot
 
 def extract(transitions):
     """Extract tensors of s, a, r, s' from a batch of transitions.
@@ -25,6 +26,7 @@ def extract(transitions):
     actions = torch.cat([t.action for t in transitions])
     rewards = torch.cat([t.reward for t in transitions])
     mask = torch.tensor([t.next_state is not None for t in transitions])
+
     temp = []
     for t in transitions:
         if t.next_state is not None:
@@ -32,8 +34,8 @@ def extract(transitions):
         else:
             a = torch.zeros_like(t.state)
             temp.append(a)
-    # next_states = torch.cat([t.next_state for t in transitions if t.next_state is not None])
     next_states = torch.cat(temp)
+    # next_states = torch.cat([t.next_state for t in transitions if t.next_state is not None])
     return states, actions, rewards, next_states, mask
 
 
@@ -105,9 +107,9 @@ class CategoricalDQN:
                 action = select_argmax_action(z, self.atoms)
             next_state, reward, done, info = env.step(action.squeeze().numpy())
             next_state = np.reshape(next_state, [1, self.state_size])
-            next_state = check_state(next_state) 
+            next_state = check_state(next_state)
             next_state = torch.from_numpy(next_state).float().unsqueeze(0) if not done else None
-            
+            # next_state = torch.from_numpy(next_state).float().unsqueeze(0)
             self.replay_buffer.remember(
                 Transition(state, action, torch.tensor([[reward]]), next_state))
             state = next_state
@@ -159,9 +161,8 @@ class CategoricalDQN:
             Implement this function
         """
         action_prob = self.z_net(states)
-        prob = torch.zeros(states.size(0), self.n_atoms)
-        for i in range(states.size(0)):
-            prob[i] = action_prob[i][actions[i]]
+        temp = torch.arange(states.size(0)).long()
+        prob = action_prob[temp, actions.squeeze(1), :]
 
         loss = -targets * torch.log(prob + 1e-08)
         loss = torch.sum(loss, dim=-1)
@@ -180,18 +181,24 @@ class CategoricalDQN:
         """
         action_probabilities = self._target_net(next_states).detach()
         next_action = select_argmax_action(action_probabilities, self.atoms)
-        next_action_probability = torch.zeros(next_states.size(0), self.n_atoms)
+        temp = torch.arange(next_states.size(0)).long()
+        next_action_probability = action_probabilities[temp, next_action.squeeze(1), :]
+        done = (1 - mask.int()).unsqueeze(-1)
         probabilities = torch.zeros((next_states.size(0), self.n_atoms))
-        for i in range(next_states.size(0)):
-            next_action_probability[i] = action_probabilities[i][next_action[i]]
-            for j in range(self.n_atoms):
-                z_j = self.atoms.squeeze()[j]
-                project_value = torch.clamp(rewards[i] + self.df * mask[i] * z_j, min=self.v_min, max=self.v_max)
-                b_j = (project_value - self.v_min) / self.delta
-                l, u = torch.floor(b_j).type(torch.long), torch.ceil(b_j).type(torch.long)
-                probabilities[i][l] += next_action_probability[i][j] * (u - b_j)
-                probabilities[i][u] += next_action_probability[i][j] * (b_j - l)
-        
+        for j in range(self.n_atoms):
+            z_j = self.atoms.squeeze()[j]
+            T_zj = torch.clamp(rewards + self.df * (1 - done) * z_j, min=self.v_min, max=self.v_max)
+            b_j = (T_zj - self.v_min) / self.delta
+            l = torch.floor(b_j)
+            u = torch.ceil(b_j)
+            l_mask = torch.zeros_like(probabilities)
+            u_mask = torch.zeros_like(probabilities)
+            dones = torch.zeros_like(probabilities)
+            dones[:, j] = done.squeeze()
+            l_mask.scatter_(1, l.long(), next_action_probability[:, j].unsqueeze(-1) * (1 - done) + dones[:, j].unsqueeze(-1) / self.n_atoms)
+            u_mask.scatter_(1, u.long(), next_action_probability[:, j].unsqueeze(-1) * (1 - done) + dones[:, j].unsqueeze(-1) / self.n_atoms)
+            probabilities += l_mask * (u - b_j)
+            probabilities += u_mask * (b_j - l)
         return probabilities
 
 
@@ -215,4 +222,3 @@ if __name__ == '__main__':
                           start_train_at=start_train_at,
                           update_every=update_target_net_every, epsilon=epsilon, state_size = state_dim)
     C51.train(env=env, n_episodes=n_episodes)
-
