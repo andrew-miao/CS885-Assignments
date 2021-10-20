@@ -183,10 +183,10 @@ class GAIL:
             self.optim_actor.zero_grad()
                        
             # Next two lines need to replaced with the actual loss function and gradient step. Now just a placeholder to make sure the program compiles.
-            # valid = torch.full((state.size(0), 1), 1.0, device=self.device)
             x = self.discriminator(state, action)
-            # loss_actor = self.loss_fn(x, valid)
-            loss_actor = -torch.log(x)
+            # loss_actor = -torch.log(x)
+            # loss_actor = torch.log(1 - x)
+            loss_actor = 1 - x
             loss_actor.mean().backward()
             self.optim_actor.step()
 
