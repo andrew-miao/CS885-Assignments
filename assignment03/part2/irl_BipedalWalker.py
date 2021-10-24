@@ -76,8 +76,10 @@ class Discriminator(nn.Module):
 
 class GAIL:
 
-    def __init__(self, args, env_name, log_file):
+    def __init__(self, args, env_name, log_file, seed=42):
         self.env = gym.make(args.env_name)
+        self.env.seed(seed)
+        # torch.manual_seed(seed)
         state_dim = self.env.observation_space.shape[0]
         action_dim = self.env.action_space.shape[0]
         max_action = float(self.env.action_space.high[0])
@@ -114,7 +116,10 @@ class GAIL:
         plt.figure(figsize=(20,5))
         plt.xlabel('Training Step', fontsize=15)
         plt.ylabel(y_tag, fontsize=15)
-        plt.plot(batch_nums, perf_nums)
+        mean = np.mean(perf_nums, 0)
+        std = np.std(perf_nums, 0)
+        plt.plot(np.mean(batch_nums, 0), mean)
+        plt.fill_between(np.mean(batch_nums, 0), mean-std, mean+std, alpha=0.3)
         plt.savefig('gail_{0}.png'.format(y_tag))
 
     def test(self, max_timesteps=1500):
@@ -146,7 +151,6 @@ class GAIL:
         training_d_loss_record = []
         training_a_loss_record = []
         training_steps_record = []
-
         for train_step in range(n_iter+1):
 
             # sample expert transitions
@@ -172,8 +176,8 @@ class GAIL:
             policy_target = torch.full((state.size(0), 1), 0.0, device=self.device)
             x = self.discriminator(state, action.detach())
             dis_policy_loss = self.loss_fn(x, policy_target)
-            
-            loss_discriminator = dis_expert_loss + dis_policy_loss
+
+            loss_discriminator = (dis_expert_loss + dis_policy_loss).mean()
             loss_discriminator.backward()         
             self.optim_discriminator.step()
 
@@ -181,7 +185,7 @@ class GAIL:
             # update policy
             ################
             self.optim_actor.zero_grad()
-                       
+                    
             # Next two lines need to replaced with the actual loss function and gradient step. Now just a placeholder to make sure the program compiles.
             x = self.discriminator(state, action)
             # loss_actor = -torch.log(x)
@@ -194,9 +198,9 @@ class GAIL:
             a_running_loss += loss_actor.mean().item()
             if train_step % 100 == 0:
                 print('[%d] discriminator loss: %.6f, actor loss %.6f' % (train_step + 1,
-                                                                          d_running_loss / (train_step + 1),
-                                                                          a_running_loss / (train_step + 1)),
-                      file=self.log_file, flush=True)
+                                                                        d_running_loss / (train_step + 1),
+                                                                        a_running_loss / (train_step + 1)),
+                    file=self.log_file, flush=True)
                 totalr = self.test()
                 training_rewards_record.append(totalr)
                 training_steps_record.append(train_step)
@@ -210,15 +214,18 @@ class GAIL:
             else:
                 avg_last_10_rewards.append(np.mean(training_rewards_record[:idx + 1]))
 
-        self.plot(batch_nums=training_steps_record, perf_nums=avg_last_10_rewards, y_tag='Rewards')
-        self.plot(batch_nums=training_steps_record, perf_nums=training_d_loss_record, y_tag='Discriminator_Loss')
-        self.plot(batch_nums=training_steps_record, perf_nums=training_a_loss_record, y_tag='Actor_Loss')
+        return avg_last_10_rewards, training_d_loss_record, training_a_loss_record, training_steps_record
+        # self.plot(batch_nums=training_steps_record, perf_nums=avg_last_10_rewards, y_tag='Rewards')
+        # self.plot(batch_nums=training_steps_record, perf_nums=training_d_loss_record, y_tag='Discriminator_Loss')
+        # self.plot(batch_nums=training_steps_record, perf_nums=training_a_loss_record, y_tag='Actor_Loss')
 
 
 class BehaviorCloning:
 
-    def __init__(self, args, env_name, log_file):
+    def __init__(self, args, env_name, log_file, seed=42):
         self.env = gym.make(args.env_name)
+        self.env.seed(seed)
+        torch.random.seed(seed)
         state_dim = self.env.observation_space.shape[0]
         action_dim = self.env.action_space.shape[0]
         max_action = float(self.env.action_space.high[0])
@@ -318,9 +325,25 @@ def gail(args):
         log_file = open(args.log_dir, 'w')
     else:
         log_file = None
-    student = GAIL(args, args.env_name, log_file)
-    student.train(n_iter=50000)
 
+    n_experiments = 5
+    seed = 42
+    rewards_record, d_loss_record, a_loss_record, steps_record = [], [], [], []
+    for k in range(n_experiments):
+        print('--------------------%d-th experiment-------------------' % (k + 1))
+        student = GAIL(args, args.env_name, log_file, seed=seed+k)
+        reward, d_loss, a_loss, steps = student.train(n_iter=50000)
+        rewards_record.append(reward)
+        d_loss_record.append(d_loss)
+        a_loss_record.append(a_loss)
+        steps_record.append(steps)
+    rewards_record = np.array(rewards_record)
+    d_loss_record = np.array(d_loss_record)
+    a_loss_record = np.array(a_loss_record)
+    steps_record = np.array(steps_record)
+    student.plot(batch_nums=steps_record, perf_nums=rewards_record, y_tag='Rewards')
+    student.plot(batch_nums=steps_record, perf_nums=d_loss_record, y_tag='Discriminator_Loss')
+    student.plot(batch_nums=steps_record, perf_nums=a_loss_record, y_tag='Actor_Loss')
 
 def behavior_cloning(args):
     """

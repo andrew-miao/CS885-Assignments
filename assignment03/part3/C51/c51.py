@@ -3,6 +3,7 @@ import random
 import numpy as np 
 import gym
 import torch
+from torch.random import seed
 import gym_cartpolemod
 import memory
 from memory import Transition
@@ -109,7 +110,6 @@ class CategoricalDQN:
             next_state = np.reshape(next_state, [1, self.state_size])
             next_state = check_state(next_state)
             next_state = torch.from_numpy(next_state).float().unsqueeze(0) if not done else None
-            # next_state = torch.from_numpy(next_state).float().unsqueeze(0)
             self.replay_buffer.remember(
                 Transition(state, action, torch.tensor([[reward]]), next_state))
             state = next_state
@@ -133,16 +133,20 @@ class CategoricalDQN:
             if episode >= n_episodes: 
                 break
 
-        self.plot(episode_list, rewards)    
+        return episode_list, rewards  
 
 
 
     def plot(self, episodes, rewards): 
         plt.figure(figsize=(20,5))
-        plt.plot(episodes, rewards)
+        rewards = np.array(rewards)
+        mean = np.mean(rewards, 0)
+        std = np.std(rewards, 0)
+        plt.plot(np.mean(episodes, 0), mean)
+        plt.fill_between(np.mean(episodes, 0), mean-std, mean+std, alpha=0.3)
         plt.xlabel('Episodes')
         plt.ylabel('Rewards')
-        plt.savefig('C51.png')
+        plt.savefig('C51_mean.png')
         print('plotted')
 
 
@@ -167,7 +171,7 @@ class CategoricalDQN:
         loss = -targets * torch.log(prob + 1e-08)
         loss = torch.sum(loss, dim=-1)
         self.optimizer.zero_grad()
-        loss.mean().backward()
+        loss.sum().backward()
         self.optimizer.step()
         if update:
             for tp, p in zip(self._target_net.parameters(), self.z_net.parameters()):
@@ -203,22 +207,32 @@ class CategoricalDQN:
 
 
 if __name__ == '__main__':
-    
-    
-    env = gym.make('CartPoleMod-v1')
-    state_dim = env.observation_space.shape[0]
-    act_dim = env.action_space.n
-    n_atoms = 51
-    n_units = 64 
-    n_layers = 2 
-    z_net = networks.DistributionalNetwork(inputs=state_dim, n_actions=act_dim, n_atoms=n_atoms,
-                                           n_hidden_units=n_units, n_hidden_layers=n_layers)
-    v_min, v_max = [0, 200] 
-    start_train_at = 32
-    update_target_net_every = 5 
-    epsilon = 0.1
-    n_episodes = 200
-    C51 = CategoricalDQN(z_net=z_net, n_atoms=n_atoms, v_min=v_min, v_max=v_max,
-                          start_train_at=start_train_at,
-                          update_every=update_target_net_every, epsilon=epsilon, state_size = state_dim)
-    C51.train(env=env, n_episodes=n_episodes)
+    episode_record, rewards_record = [], []
+    n_experiments = 5
+    seed = 42
+    for k in range(n_experiments):
+        print('----------------------%d-th---------------------'%(k + 1))
+        env = gym.make('CartPoleMod-v1')
+        env.seed(seed + k)
+        # torch.manual_seed(seed + k)
+        state_dim = env.observation_space.shape[0]
+        act_dim = env.action_space.n
+        n_atoms = 51
+        n_units = 64 
+        n_layers = 2 
+        z_net = networks.DistributionalNetwork(inputs=state_dim, n_actions=act_dim, n_atoms=n_atoms,
+                                            n_hidden_units=n_units, n_hidden_layers=n_layers)
+        v_min, v_max = [0, 200] 
+        start_train_at = 32
+        update_target_net_every = 5 
+        epsilon = 0.1
+        n_episodes = 250
+        C51 = CategoricalDQN(z_net=z_net, n_atoms=n_atoms, v_min=v_min, v_max=v_max,
+                            start_train_at=start_train_at,
+                            update_every=update_target_net_every, epsilon=epsilon, state_size = state_dim)
+        episode, rewards = C51.train(env=env, n_episodes=n_episodes)
+        episode_record.append(episode)
+        rewards_record.append(rewards)
+    episode_record = np.array(episode_record)
+    rewards_record = np.array(rewards_record)
+    C51.plot(episode_record, rewards_record)

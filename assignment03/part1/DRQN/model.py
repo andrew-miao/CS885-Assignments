@@ -61,8 +61,10 @@ class DRQN(nn.Module):
         rnn_states = torch.stack(batch.rnn_state).to(device)
         h, c = rnn_states[:, :, 0, :], rnn_states[:, :, 1, :]
         h_q, c_q = h[:, 0, :], c[:, 0, :]  # hidden state and cell state for the Q network
+        # h_q, c_q = torch.zeros_like(h[:, 0, :]), torch.zeros_like(c[:, 0, :])
         h_q, c_q = torch.unsqueeze(h_q, 0).to(device), torch.unsqueeze(c_q, 0).to(device)
         h_target, c_target = h[:, 1, :], c[:, 1, :]  # hidden state and cell state for the target Q network
+        # h_target, c_target = torch.zeros_like(h[:, 1, :]), torch.zeros_like(c[:, 1, :])
         h_target, c_target = torch.unsqueeze(h_target, 0).to(device), torch.unsqueeze(c_target, 0).to(device)
         with torch.no_grad():
             q_target, _ = target_net(next_obs, (h_target, c_target))
@@ -72,14 +74,13 @@ class DRQN(nn.Module):
         q_value, _ = online_net(obs, (h_q, c_q))
         q_value = torch.gather(q_value, -1, actions.view(q_value.size(0), -1, 1)).squeeze()
 
-        # criterion = nn.MSELoss()
-        criterion = nn.SmoothL1Loss()
+        criterion = nn.MSELoss()
         loss = criterion(q_value, q_target)
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(online_net.parameters(), max_norm=1.0)
+        # torch.nn.utils.clip_grad_norm_(online_net.parameters(), max_norm=1.0)
         optimizer.step()
-    
+
     def get_action(self, state, hidden):
         # state represents the state variable. 
         # hidden represents the hidden state and cell state for the LSTM.
